@@ -10,5 +10,6 @@ name="day01-part1"
 name="day01-part2"
 
 [dependencies]
+anyhow = "1.0.75"
 nom = "7.1.3"
 

@@ -3,7 +3,8 @@ use nom::character::complete::{char, line_ending, space1, u32};
 use nom::multi::separated_list1;
 use nom::sequence::{preceded, separated_pair, tuple};
 use nom::{Finish, Parser};
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::fs::read_to_string;
 
 #[derive(Debug)]
@@ -35,14 +36,25 @@ fn parse(input: &str) -> anyhow::Result<Vec<Card>> {
         .map_err(|e: nom::error::VerboseError<&str>| anyhow::anyhow!("parser error: {:?}", e))
 }
 fn part2(cards: &[Card]) -> usize {
-    fn count_copies(cards_copies: &[usize], id: usize) -> usize {
-        (1..=cards_copies[id]).fold(1, |acc, i| acc + count_copies(cards_copies, id + i))
+    let cache = RefCell::new(HashMap::new());
+    fn count_copies(
+        cards_copies: &[usize],
+        id: usize,
+        cache: &RefCell<HashMap<usize, usize>>,
+    ) -> usize {
+        if cache.borrow().contains_key(&id) {
+            return cache.borrow()[&id];
+        }
+        let count = (1..=cards_copies[id])
+            .fold(1, |acc, i| acc + count_copies(cards_copies, id + i, cache));
+        cache.borrow_mut().insert(id, count);
+        count
     }
     let cards_copies: Vec<_> = cards
         .iter()
         .map(|c| c.my.intersection(&c.winning).count())
         .collect();
-    (0..cards_copies.len()).fold(0, |acc, id| acc + count_copies(&cards_copies, id))
+    (0..cards_copies.len()).fold(0, |acc, id| acc + count_copies(&cards_copies, id, &cache))
 }
 
 fn main() {

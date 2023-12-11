@@ -6,8 +6,9 @@ use nom::character::complete::{line_ending, one_of};
 use nom::multi::{many1, separated_list1};
 use nom::sequence::{delimited, separated_pair, terminated};
 use nom::{Finish, Parser};
+use num::integer::lcm;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 enum Dir {
     L,
     R,
@@ -31,30 +32,28 @@ fn parse(input: &str) -> anyhow::Result<(Vec<Dir>, Map)> {
         .map_err(|e: nom::error::VerboseError<&str>| anyhow::anyhow!("parser error: {:?}", e))?;
     Ok((dirs, map.into_iter().collect()))
 }
-fn all_ends_with_z(pos_vec: &mut [&str]) -> bool {
-    pos_vec.iter().all(|key| key.ends_with('Z'))
-}
 
 fn part2(dirs: &[Dir], map: &Map) -> usize {
-    let mut pos_vec: Vec<_> = map
-        .keys()
+    map.keys()
         .filter(|key| key.ends_with('A'))
         .copied()
-        .collect();
-    dirs.iter()
-        .cycle()
-        .take_while(|dir| {
-            //eprintln!("dir = {:#?}, pos_vec = {:?}", dir, pos_vec);
-            pos_vec.iter_mut().for_each(|pos| {
-                *pos = match dir {
-                    Dir::L => map[pos].0,
-                    Dir::R => map[pos].1,
-                };
-            });
-            !all_ends_with_z(&mut pos_vec)
+        .map(|mut pos| {
+            let cu = &mut pos;
+            dirs.iter()
+                .cycle()
+                .map(|dir| {
+                    *cu = match dir {
+                        Dir::L => map[cu].0,
+                        Dir::R => map[cu].1,
+                    };
+                    *cu
+                })
+                .take_while(|pos| !pos.ends_with('Z'))
+                .count()
+                + 1
         })
-        .count()
-        + 1
+        .reduce(lcm)
+        .unwrap()
 }
 
 fn main() {

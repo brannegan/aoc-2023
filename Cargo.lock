@@ -13,6 +13,7 @@ name = "aoc-2023"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "glam",
  "itertools",
  "nom",
  "num",
@@ -42,6 +43,12 @@ name = "fixedbitset"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
+
+[[package]]
+name = "glam"
+version = "0.24.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5418c17512bdf42730f9032c74e1ae39afc408745ebb2acf72fbc4691c17945"
 
 [[package]]
 name = "hashbrown"

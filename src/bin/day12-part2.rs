@@ -65,6 +65,15 @@ impl Spring {
     fn arrangements(&self) -> usize {
         self.recursive(0, 0)
     }
+    fn unfold(&mut self) {
+        let field_len = self.field.len();
+        let group_len = self.groups.len();
+        for _ in 0..4 {
+            self.field.push(Tile::Unknown);
+            self.field.extend_from_within(0..field_len);
+            self.groups.extend_from_within(0..group_len);
+        }
+    }
 }
 impl From<char> for Tile {
     fn from(value: char) -> Self {
@@ -109,14 +118,15 @@ fn parse(input: &str) -> Vec<Spring> {
         .map(Spring::new)
         .collect()
 }
-fn part1(springs: &[Spring]) -> usize {
+fn part2(mut springs: Vec<Spring>) -> usize {
+    springs.iter_mut().for_each(Spring::unfold);
     springs.iter().map(Spring::arrangements).sum()
 }
 
 fn main() {
     let input = read_to_string("inputs/day12-input1.txt").unwrap();
     let springs = parse(&input);
-    let answer = part1(&springs);
+    let answer = part2(springs);
     println!("answer is: {answer}");
 }
 #[cfg(test)]
@@ -133,22 +143,20 @@ mod tests {
 ?###???????? 3,2,1
 "#;
     #[test]
-    fn parsing() {
-        let springs = parse(INPUT.trim());
-        assert_eq!(format!("{}", springs[0]), "???.###");
-    }
-    #[test]
     fn arrangements() {
-        let springs = parse(INPUT.trim());
+        let mut springs = parse(INPUT.trim());
+        springs.iter_mut().for_each(Spring::unfold);
+
         assert_eq!(springs[0].arrangements(), 1);
-        assert_eq!(springs[1].arrangements(), 4);
+        assert_eq!(springs[1].arrangements(), 16384);
         assert_eq!(springs[2].arrangements(), 1);
-        assert_eq!(springs[3].arrangements(), 1);
-        assert_eq!(springs[4].arrangements(), 4);
+        assert_eq!(springs[3].arrangements(), 16);
+        assert_eq!(springs[4].arrangements(), 2500);
+        assert_eq!(springs[5].arrangements(), 506250);
     }
     #[test]
-    fn part1_test() {
+    fn part2_test() {
         let springs = parse(INPUT.trim());
-        assert_eq!(part1(&springs), 21);
+        assert_eq!(part2(springs), 525152);
     }
 }

@@ -1,6 +1,8 @@
+use indicatif::ProgressIterator;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::fs::read_to_string;
-use std::ops::{Not, Range};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Tile {
@@ -8,7 +10,7 @@ enum Tile {
     Operational,
     Unknown,
 }
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Spring {
     field: Vec<Tile>,
     groups: Vec<usize>,
@@ -20,55 +22,59 @@ impl Spring {
         let groups = groups.split(',').map(|num| num.parse().unwrap()).collect();
         Self { field, groups }
     }
-    fn is_valid(&self, mut range: Range<usize>) -> bool {
-        let start = range.start;
-        let end = range.end;
-        let range_is_valid =
-            range.all(|tile_i| matches!(self.field[tile_i], Tile::Damaged | Tile::Unknown));
-        let left_is_valid = if start == 0 {
-            true
-        } else {
-            matches!(self.field[start - 1], Tile::Operational | Tile::Unknown)
-        };
-        let right_is_valid = if end == self.field.len() {
-            true
-        } else {
-            matches!(self.field[end], Tile::Operational | Tile::Unknown)
-        };
-        left_is_valid && range_is_valid && right_is_valid
-    }
-    fn recursive(&self, gid: usize, offset: usize) -> usize {
-        let size = self.groups[gid];
-        if offset + size > self.field.len() {
-            return 0;
+    fn recursive(
+        &self,
+        field_i: usize,
+        group_i: usize,
+        cur_len: usize,
+        cache: &RefCell<HashMap<(usize, usize, usize), usize>>,
+    ) -> usize {
+        if cache.borrow().contains_key(&(field_i, group_i, cur_len)) {
+            return cache.borrow()[&(field_i, group_i, cur_len)];
         }
-        let len = self.field[offset..]
-            .iter()
-            .position(|tile| *tile == Tile::Damaged)
-            .unwrap_or(self.field[offset..].len() - size)
-            .max(size);
-        if gid == self.groups.len() - 1 {
-            return (offset..=self.field.len() - size)
-                .filter(|&start| self.is_valid(start..start + size))
-                .filter(|&start| self.field[offset..start].contains(&Tile::Damaged).not())
-                .filter(|&start| self.field[start + size..].contains(&Tile::Damaged).not())
-                .count();
+        if field_i == self.field.len() {
+            if (group_i == self.groups.len() && cur_len == 0)
+                || (group_i == self.groups.len() - 1 && self.groups[group_i] == cur_len)
+            {
+                return 1;
+            } else {
+                return 0;
+            }
         }
-        (offset..=offset + len)
-            .filter(|&start| start + size < self.field.len())
-            .filter(|&start| self.is_valid(start..start + size))
-            .filter(|&start| self.field[offset..start].contains(&Tile::Damaged).not())
-            .fold(0, |acc, start| {
-                acc + self.recursive(gid + 1, start + size + 1)
-            })
+        let mut acc = 0;
+
+        let mut process_tile = |tile: Tile| {
+            if tile == Tile::Operational && cur_len == 0 {
+                acc += self.recursive(field_i + 1, group_i, cur_len, cache);
+            } else if tile == Tile::Operational
+                && cur_len > 0
+                && group_i < self.groups.len()
+                && cur_len == self.groups[group_i]
+            {
+                acc += self.recursive(field_i + 1, group_i + 1, 0, cache);
+            } else if tile == Tile::Damaged {
+                acc += self.recursive(field_i + 1, group_i, cur_len + 1, cache);
+            }
+        };
+
+        if self.field[field_i] == Tile::Unknown {
+            process_tile(Tile::Damaged);
+            process_tile(Tile::Operational);
+        } else {
+            process_tile(self.field[field_i]);
+        }
+
+        cache.borrow_mut().insert((field_i, group_i, cur_len), acc);
+        acc
     }
     fn arrangements(&self) -> usize {
-        self.recursive(0, 0)
+        let cache = RefCell::new(HashMap::new());
+        self.recursive(0, 0, 0, &cache)
     }
-    fn unfold(&mut self) {
+    fn unfold(&mut self, count: usize) {
         let field_len = self.field.len();
         let group_len = self.groups.len();
-        for _ in 0..4 {
+        for _ in 0..count - 1 {
             self.field.push(Tile::Unknown);
             self.field.extend_from_within(0..field_len);
             self.groups.extend_from_within(0..group_len);
@@ -103,7 +109,7 @@ impl Display for Spring {
         for tile in self.field.iter() {
             write!(f, "{}", tile)?;
         }
-        write!(f, " : ")?;
+        write!(f, " ")?;
         for tile in self.groups.iter() {
             write!(f, "{},", tile)?;
         }
@@ -119,8 +125,8 @@ fn parse(input: &str) -> Vec<Spring> {
         .collect()
 }
 fn part2(mut springs: Vec<Spring>) -> usize {
-    springs.iter_mut().for_each(Spring::unfold);
-    springs.iter().map(Spring::arrangements).sum()
+    springs.iter_mut().for_each(|spring| spring.unfold(5));
+    springs.iter().progress().map(Spring::arrangements).sum()
 }
 
 fn main() {
@@ -145,14 +151,10 @@ mod tests {
     #[test]
     fn arrangements() {
         let mut springs = parse(INPUT.trim());
-        springs.iter_mut().for_each(Spring::unfold);
+        springs.iter_mut().for_each(|spring| spring.unfold(5));
+        let results: Vec<_> = springs.iter().map(Spring::arrangements).collect();
 
-        assert_eq!(springs[0].arrangements(), 1);
-        assert_eq!(springs[1].arrangements(), 16384);
-        assert_eq!(springs[2].arrangements(), 1);
-        assert_eq!(springs[3].arrangements(), 16);
-        assert_eq!(springs[4].arrangements(), 2500);
-        assert_eq!(springs[5].arrangements(), 506250);
+        assert_eq!(results, vec![1, 16384, 1, 16, 2500, 506250]);
     }
     #[test]
     fn part2_test() {

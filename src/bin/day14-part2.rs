@@ -1,75 +1,150 @@
 use std::collections::HashSet;
+use std::fmt::Display;
 use std::fs::read_to_string;
 
-fn parse(input: &str) -> Vec<Vec<char>> {
-    input.lines().map(|line| line.chars().collect()).collect()
-}
-fn tilt(platform: Vec<Vec<char>>) -> Vec<Vec<char>> {
-    let mut tilted = platform.clone();
-    let w = platform[0].len();
-    let h = platform.len();
-    let mut row_d = platform[h - 1].clone();
-    let mut round_rocks_queue: HashSet<(usize, usize)> = HashSet::new();
+use glam::IVec2;
 
-    for r in (1..h).rev() {
-        let mut row_u = platform[r - 1].clone();
-        for c in 0..w {
-            match (row_d[c], row_u[c]) {
-                ('O', '.') => {
-                    let to_remove = round_rocks_queue
-                        .iter()
-                        .filter(|(_, col)| c == *col)
-                        .copied()
-                        .max_by_key(|(r, _)| *r);
-                    if let Some(key) = to_remove {
-                        round_rocks_queue.remove(&key);
-                        tilted[key.0][key.1] = '.';
-                        row_d[c] = 'O';
-                        row_u[c] = 'O';
-                        round_rocks_queue.insert((r, c));
-                    } else {
-                        row_d[c] = '.';
-                        row_u[c] = 'O'
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Dir(IVec2);
+const NORTH: Dir = Dir(IVec2::Y);
+const SOUTH: Dir = Dir(IVec2::NEG_Y);
+const WEST: Dir = Dir(IVec2::X);
+const EAST: Dir = Dir(IVec2::NEG_X);
+
+fn part2(platform: Platform) -> i32 {
+    platform.spin_1_000_000_000().total_load()
+}
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Platform {
+    round_rocks: HashSet<IVec2>,
+    cube_rocks: HashSet<IVec2>,
+    size: i32,
+}
+
+impl Platform {
+    fn total_load(&self) -> i32 {
+        self.round_rocks
+            .iter()
+            .map(|coord| self.size - coord.y)
+            .sum()
+    }
+    fn tilt(mut self, dir: Dir) -> Self {
+        let mut rolled_rocks = HashSet::new();
+        let mut roll = |x, y, next_pos: &mut IVec2| {
+            if self.cube_rocks.contains(&IVec2::new(x, y)) {
+                *next_pos = IVec2::new(x, y) + dir.0;
+            }
+            if self.round_rocks.contains(&IVec2::new(x, y)) {
+                rolled_rocks.insert(*next_pos);
+                *next_pos += dir.0
+            }
+        };
+
+        for x in 0..self.size {
+            match dir {
+                NORTH => {
+                    let mut next_pos = IVec2::new(x, 0);
+                    for y in 0..self.size {
+                        roll(x, y, &mut next_pos)
                     }
                 }
-                ('O', 'O') => {
-                    round_rocks_queue.insert((r, c));
-                }
-                ('O', '#') => {
-                    round_rocks_queue.retain(|key| key.1 != c);
+                SOUTH => {
+                    let mut next_pos = IVec2::new(x, self.size - 1);
+                    for y in (0..self.size).rev() {
+                        roll(x, y, &mut next_pos)
+                    }
                 }
 
-                _ => (),
+                WEST => {
+                    let mut next_pos = IVec2::new(0, x);
+                    for y in 0..self.size {
+                        roll(y, x, &mut next_pos)
+                    }
+                }
+                EAST => {
+                    let mut next_pos = IVec2::new(self.size - 1, x);
+                    for y in (0..self.size).rev() {
+                        roll(y, x, &mut next_pos)
+                    }
+                }
+                _ => {
+                    unimplemented!("no other direction yet")
+                }
+            };
+        }
+        self.round_rocks = rolled_rocks;
+        self
+    }
+    fn cycle(self) -> Self {
+        self.tilt(NORTH).tilt(WEST).tilt(SOUTH).tilt(EAST)
+    }
+    fn spin_1_000_000_000(mut self) -> Self {
+        let mut vec_of_round_rocks = vec![self.round_rocks.clone()];
+        let mut cycles = 0;
+        let repeat_cycle = loop {
+            self = self.cycle();
+            cycles += 1;
+            let next = self.round_rocks.clone();
+            let cycle_pos = vec_of_round_rocks.iter().position(|old| old == &next);
+            if let Some(pos) = cycle_pos {
+                break pos;
             }
+            vec_of_round_rocks.push(next);
+        };
+        for _ in 0..(1_000_000_000 - cycles) % (cycles - repeat_cycle) {
+            self = self.cycle()
         }
-        tilted[r] = row_d.clone();
-        tilted[r - 1] = row_u.clone();
-        row_d = row_u;
+        self
     }
-    tilted
 }
-fn part2(platform: &[Vec<char>]) -> usize {
-    let h = platform.len();
-    platform
-        .iter()
+
+impl Display for Platform {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for y in 0..self.size {
+            for x in 0..self.size {
+                if self.round_rocks.contains(&IVec2::new(x, y)) {
+                    write!(f, "O")?;
+                } else if self.cube_rocks.contains(&IVec2::new(x, y)) {
+                    write!(f, "#")?;
+                } else {
+                    write!(f, ".")?;
+                }
+            }
+            writeln!(f)?;
+        }
+        Ok(())
+    }
+}
+
+fn parse(input: &str) -> Platform {
+    let lines = input.lines();
+    let mut platform = Platform::default();
+    platform.size = lines
         .enumerate()
-        .map(|(i, row)| row.iter().filter(|ch| **ch == 'O').count() * (h - i))
-        .sum()
-}
-fn _print(platform: &[Vec<char>]) {
-    for row in platform.iter() {
-        for t in row.iter() {
-            print!("{t}");
-        }
-        println!();
-    }
-    println!();
+        .map(|(line_i, line)| {
+            line.chars()
+                .enumerate()
+                .for_each(|(char_i, char)| match char {
+                    '#' => {
+                        platform
+                            .cube_rocks
+                            .insert(IVec2::new(char_i as i32, line_i as i32));
+                    }
+                    'O' => {
+                        platform
+                            .round_rocks
+                            .insert(IVec2::new(char_i as i32, line_i as i32));
+                    }
+                    _ => {}
+                })
+        })
+        .count() as i32;
+    platform
 }
 fn main() {
     let input = read_to_string("inputs/day14-input1.txt").unwrap();
-    let rocks = parse(&input);
-    let tilted = tilt(rocks);
-    let answer = part2(&tilted);
+    let platform = parse(&input);
+    let answer = part2(platform);
     println!("answer is: {answer}");
 }
 #[cfg(test)]
@@ -101,23 +176,46 @@ O..#.OO...
 #....###..
 #....#....
 "#;
+    const CYCLE_1: &str = r#"
+.....#....
+....#...O#
+...OO##...
+.OO#......
+.....OOO#.
+.O#...O#.#
+....O#....
+......OOOO
+#...O###..
+#..OO#....
+"#;
     #[test]
     fn parsing() {
-        let rocks = parse(INPUT.trim());
-        assert_eq!(rocks[0][0], 'O');
-        assert_eq!(rocks[0][5], '#');
-        assert_eq!(rocks[2][0], '.');
+        let platform = parse(INPUT.trim());
+        println!("{}", platform);
+        assert_eq!(format!("{}", platform).trim(), INPUT.trim());
     }
     #[test]
     fn tilt_test() {
-        let rocks = parse(INPUT.trim());
-        let tilted = tilt(rocks);
-        assert_eq!(tilted, parse(TILTED.trim()));
+        let platform = parse(INPUT.trim());
+        let tilted = platform.tilt(NORTH);
+        assert_eq!(format!("{}", tilted).trim(), TILTED.trim());
+    }
+    #[test]
+    fn cycle_1() {
+        let platform = parse(INPUT.trim());
+        let cycle_1 = platform.cycle();
+
+        assert_eq!(format!("{}", cycle_1).trim(), CYCLE_1.trim());
     }
     #[test]
     fn part2_test() {
-        let rocks = parse(INPUT.trim());
-        let tilted = tilt(rocks);
-        assert_eq!(part2(&tilted), 136);
+        let platform = parse(INPUT.trim());
+        assert_eq!(part2(platform), 64);
+    }
+    #[test]
+    fn total_load() {
+        let platform = parse(INPUT.trim());
+        let tilted = platform.tilt(NORTH);
+        assert_eq!(tilted.total_load(), 136);
     }
 }

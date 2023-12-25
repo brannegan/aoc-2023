@@ -2,6 +2,8 @@ use std::collections::{BinaryHeap, HashMap};
 use std::fmt::Display;
 use std::fs::read_to_string;
 
+use itertools::Itertools;
+
 #[derive(Debug)]
 struct HeatMap {
     data: Vec<Vec<u32>>,
@@ -21,9 +23,22 @@ impl HeatMap {
             .flatten()
             .filter(move |next| !cur.trail.iter().any(|pos| pos == next))
             .filter(move |next| {
-                !((next.x.abs_diff(cur.trail.last().unwrap().x) == 4
+                let axis_aligned_count = cur
+                    .trail
+                    .iter()
+                    .unique()
+                    .take_while(|pos| {
+                        cur.pos.y.abs_diff(pos.y) == 0 || cur.pos.x.abs_diff(pos.x) == 0
+                    })
+                    .count();
+                axis_aligned_count >= 4
+                    || next.y.abs_diff(cur.trail[axis_aligned_count - 1].y) == 0
+                    || next.x.abs_diff(cur.trail[axis_aligned_count - 1].x) == 0
+            })
+            .filter(move |next| {
+                !((next.x.abs_diff(cur.trail.last().unwrap().x) == 11
                     && next.y.abs_diff(cur.trail.last().unwrap().y) == 0)
-                    || (next.y.abs_diff(cur.trail.last().unwrap().y) == 4
+                    || (next.y.abs_diff(cur.trail.last().unwrap().y) == 11
                         && next.x.abs_diff(cur.trail.last().unwrap().x) == 0))
             })
     }
@@ -66,7 +81,7 @@ impl Ord for MinPath {
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Hash)]
 struct Crucible {
     pos: Pos,
-    trail: [Pos; 3],
+    trail: [Pos; 10],
 }
 
 impl Crucible {
@@ -107,6 +122,18 @@ impl HeatMap {
         }
         (0, vec![])
     }
+    fn print_path(&self, path: &[Pos]) {
+        for y in 0..self.data.len() {
+            for x in 0..self.data[0].len() {
+                if path.contains(&Pos::new(x, y)) {
+                    print!(".");
+                } else {
+                    print!("{}", self.data[y][x]);
+                }
+            }
+            println!()
+        }
+    }
 }
 
 fn path(came_from: &HashMap<Crucible, Crucible>, mut cur: Crucible) -> Vec<Pos> {
@@ -126,29 +153,20 @@ fn parse(input: &str) -> HeatMap {
 
     HeatMap { data }
 }
-fn part1(heat_map: &HeatMap) -> u32 {
+
+fn part2(heat_map: &HeatMap) -> u32 {
     let (len, path) = heat_map.astar(
         Pos::new(0, 0),
         Pos::new(heat_map.size() - 1, heat_map.size() - 1),
     );
-    for y in 0..heat_map.data.len() {
-        for x in 0..heat_map.data[0].len() {
-            if path.contains(&Pos::new(x, y)) {
-                print!(".");
-            } else {
-                print!("{}", heat_map.data[y][x]);
-            }
-        }
-        println!()
-    }
-
+    heat_map.print_path(&path);
     len
 }
 
 fn main() {
     let input = read_to_string("inputs/day17-input1.txt").unwrap();
     let heat_map = parse(&input);
-    let answer = part1(&heat_map);
+    let answer = part2(&heat_map);
     println!("answer is: {answer}");
 }
 #[cfg(test)]
@@ -171,12 +189,6 @@ mod tests {
 2546548887735
 4322674655533
 "#;
-    const SIMPLE: &str = r#"
-2413
-3315
-3215
-4546
-"#;
     #[test]
     fn parsing() {
         let heat_map = parse(INPUT.trim());
@@ -191,25 +203,16 @@ mod tests {
     }
     #[test]
     fn astar_test() {
-        let heat_map = parse(SIMPLE.trim());
-        let (len, path) = heat_map.astar(Pos::new(0, 0), Pos::new(3, 3));
-        assert_eq!(
-            path,
-            vec![
-                Pos::new(0, 0),
-                Pos::new(1, 0),
-                Pos::new(2, 0),
-                Pos::new(2, 1),
-                Pos::new(2, 2),
-                Pos::new(3, 2),
-                Pos::new(3, 3)
-            ]
+        let heat_map = parse(INPUT.trim());
+        let (len, _path) = heat_map.astar(
+            Pos::new(0, 0),
+            Pos::new(heat_map.size() - 1, heat_map.size() - 1),
         );
-        assert_eq!(len, 18);
+        assert_eq!(len, 94);
     }
     #[test]
-    fn part1_test() {
+    fn part2_test() {
         let heat_map = parse(INPUT.trim());
-        assert_eq!(part1(&heat_map), 102);
+        assert_eq!(part2(&heat_map), 94);
     }
 }

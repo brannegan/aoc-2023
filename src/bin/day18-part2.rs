@@ -1,5 +1,8 @@
 use std::fs::read_to_string;
 
+use glam::I64Vec2;
+use itertools::Itertools;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Dir {
     Up,
@@ -11,7 +14,7 @@ enum Dir {
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct DigInstruction {
     dir: Dir,
-    len: i32,
+    len: i64,
     color: u32,
 }
 
@@ -40,123 +43,73 @@ fn parse(input: &str) -> Vec<DigInstruction> {
         })
         .collect()
 }
-fn part1(parsed: &[DigInstruction]) -> usize {
-    let mut pit = dig(parsed);
-    fill_area(&mut pit);
-    volume(&pit)
+fn part2(input: &str) -> i64 {
+    let parsed = parse(input);
+    let decoded = decode(parsed);
+    let vertices = vertices(decoded);
+    let area = area(&vertices);
+    assert_ne!(area, 952408144115);
+    area
 }
-fn volume(pit: &[Vec<u32>]) -> usize {
-    pit.iter()
-        .flat_map(|row| row.iter())
-        .filter(|val| **val > 0)
-        .count()
-}
-fn fill_area(pit: &mut [Vec<u32>]) {
-    let h = pit.len();
-    let w = pit[0].len();
-    for r in 1..h - 1 {
-        let mut edges_count = 0;
-        let mut down = false;
-        let mut up = false;
-        for c in 1..w - 1 {
-            down = down || pit[r + 1][c] > 0 && pit[r][c] > 0;
-            up = up || pit[r - 1][c] > 0 && pit[r][c] > 0;
-            if up && down {
-                edges_count += 1;
-                down = false;
-                up = false;
-            }
-            if edges_count % 2 == 1 && pit[r][c] == 0 {
-                pit[r][c] = 1;
-                down = false;
-                up = false;
-            } else if edges_count % 2 == 0 && pit[r][c] == 0 {
-                down = false;
-                up = false;
-            }
-        }
-    }
-}
-fn dig(parsed: &[DigInstruction]) -> Vec<Vec<u32>> {
-    let ((max_w, max_h), (min_w, min_h)) = dimensions(parsed);
 
-    let mut res: Vec<Vec<u32>> =
-        vec![vec![0; (max_w - min_w + 3) as usize]; (max_h - min_h + 3) as usize];
-    parsed.iter().fold(
-        (
-            min_h.unsigned_abs() as usize + 1,
-            min_w.unsigned_abs() as usize + 1,
-        ),
-        |mut acc: (usize, usize), instr: &DigInstruction| {
+fn decode(encoded: Vec<DigInstruction>) -> Vec<DigInstruction> {
+    encoded
+        .into_iter()
+        .map(|instr| DigInstruction {
+            dir: match instr.color & 0x00000F {
+                0 => Dir::Right,
+                1 => Dir::Down,
+                2 => Dir::Left,
+                3 => Dir::Up,
+                _ => unimplemented!(),
+            },
+            len: instr.color as i64 >> 4,
+            color: instr.color,
+        })
+        .collect()
+}
+fn area(polygon: &[I64Vec2]) -> i64 {
+    let perimeter: i64 = polygon
+        .iter()
+        .tuple_windows()
+        .map(|(a, b)| (b.x - a.x + b.y - a.y).abs())
+        .sum::<i64>()
+        + (polygon[0].x + polygon[0].y);
+    let inner_area = polygon
+        .iter()
+        .tuple_windows()
+        .map(|(a, b)| (a.x * b.y - a.y * b.x))
+        .sum::<i64>()
+        .abs()
+        / 2;
+    inner_area + perimeter / 2 + 1 // 1 is (0,0)
+}
+
+fn vertices(dig_plan: Vec<DigInstruction>) -> Vec<I64Vec2> {
+    dig_plan
+        .into_iter()
+        .scan(I64Vec2::ZERO, |state, instr| {
             match instr.dir {
                 Dir::Up => {
-                    (acc.0 - instr.len as usize..=acc.0).for_each(|i| res[i][acc.1] = instr.color);
-                    acc.0 -= instr.len as usize;
+                    *state += I64Vec2::new(0, instr.len);
                 }
                 Dir::Down => {
-                    (acc.0..=acc.0 + instr.len as usize).for_each(|i| res[i][acc.1] = instr.color);
-                    acc.0 += instr.len as usize;
+                    *state -= I64Vec2::new(0, instr.len);
                 }
                 Dir::Right => {
-                    (acc.1..=acc.1 + instr.len as usize).for_each(|i| res[acc.0][i] = instr.color);
-                    acc.1 += instr.len as usize;
+                    *state += I64Vec2::new(instr.len, 0);
                 }
                 Dir::Left => {
-                    (acc.1 - instr.len as usize..=acc.1).for_each(|i| res[acc.0][i] = instr.color);
-                    acc.1 -= instr.len as usize;
+                    *state -= I64Vec2::new(instr.len, 0);
                 }
             };
-            acc
-        },
-    );
-
-    res
+            Some(*state)
+        })
+        .collect()
 }
-fn _print_field(f: &[Vec<u32>]) {
-    for row in f {
-        for c in row {
-            if c != &0 {
-                print!("#")
-            } else {
-                print!(".")
-            }
-        }
-        println!()
-    }
-}
-fn dimensions(parsed: &[DigInstruction]) -> ((i32, i32), (i32, i32)) {
-    let mut w = 0i32;
-    let mut h = 0i32;
-    parsed.iter().fold(
-        ((0, 0), (i32::MAX, i32::MAX)),
-        |((mut max_w, mut max_h), (mut min_w, mut min_h)), instr| {
-            match instr.dir {
-                Dir::Up => {
-                    h -= instr.len;
-                }
-                Dir::Down => {
-                    h += instr.len;
-                }
-                Dir::Right => {
-                    w += instr.len;
-                }
-                Dir::Left => {
-                    w -= instr.len;
-                }
-            };
-            max_w = max_w.max(w);
-            max_h = max_h.max(h);
-            min_w = min_w.min(w);
-            min_h = min_h.min(h);
-            ((max_w, max_h), (min_w, min_h))
-        },
-    )
-}
-
 fn main() {
     let input = read_to_string("inputs/day18-input1.txt").unwrap();
-    let parsed = parse(&input);
-    let answer = part1(&parsed);
+    let answer = part2(&input);
     println!("answer is: {answer}");
 }
 #[cfg(test)]
@@ -181,19 +134,79 @@ L 2 (#015232)
 U 2 (#7a21e3)
 "#;
 
+    const FORMULA: &str = r#"
+R 3 (#70c710)
+D 3 (#0dc571)
+L 3 (#5713f0)
+U 3 (#d2c081)
+"#;
+    //   3
+    // ###*
+    // ###* 3
+    // ###*
+    // 0***
+    //
+
     #[test]
-    fn parsing() {
+    fn decoding() {
         let parsed = parse(INPUT.trim());
+        let decoded = decode(parsed);
+        assert_eq!(0x70c710 >> 4, 461937);
         let test = DigInstruction {
             dir: Dir::Right,
-            len: 6,
+            len: 461937,
             color: 0x70c710,
         };
-        assert_eq!(parsed[0], test);
+        assert_eq!(decoded[0], test);
+        let test = DigInstruction {
+            dir: Dir::Down,
+            len: 56407,
+            color: 0x0DC571,
+        };
+        assert_eq!(decoded[1], test);
     }
     #[test]
-    fn part1_test() {
+    fn vertices_test() {
         let parsed = parse(INPUT.trim());
-        assert_eq!(part1(&parsed), 62);
+        let decoded = decode(parsed);
+        let vertices = vertices(decoded);
+        assert_eq!(vertices[0], I64Vec2::new(461937, 0));
+        assert_eq!(vertices[1], I64Vec2::new(461937, 56407));
+        assert_eq!(vertices.last(), Some(&I64Vec2::new(0, 0)));
+    }
+    #[test]
+    fn vertices_test_nodecode() {
+        let parsed = parse(INPUT.trim());
+        let vertices = vertices(parsed);
+        assert_eq!(vertices[0], I64Vec2::new(6, 0));
+        assert_eq!(vertices[1], I64Vec2::new(6, 5));
+        assert_eq!(vertices[2], I64Vec2::new(4, 5));
+        assert_eq!(vertices.last(), Some(&I64Vec2::new(0, 0)));
+    }
+    #[test]
+    fn area_small() {
+        let parsed = parse(INPUT.trim());
+        let vertices = vertices(parsed);
+        let area = area(&vertices);
+        assert_eq!(area, 62);
+    }
+    #[test]
+    fn area_formula() {
+        let parsed = parse(FORMULA.trim());
+        let vertices = vertices(parsed);
+        let area = area(&vertices);
+        assert_eq!(area, 16);
+    }
+    #[test]
+    fn area_big() {
+        let parsed = parse(INPUT.trim());
+        let decoded = decode(parsed);
+        let vertices = vertices(decoded);
+        let area = area(&vertices);
+        assert_eq!(area, 952408144115);
+    }
+    #[test]
+    fn part2_test() {
+        assert_eq!(part2(INPUT.trim()), 952408144115);
     }
 }

@@ -1,3 +1,5 @@
+use itertools::Itertools;
+use num::integer::lcm;
 use std::collections::{HashMap, VecDeque};
 use std::fs::read_to_string;
 
@@ -83,32 +85,28 @@ fn init_conjunctions<'a>(modules: &mut HashMap<&'a str, Module<'a>>) {
         }
     }
 }
-fn push_button_low_rx_reached<'a>(modules: &mut HashMap<&'a str, Module<'a>>) -> bool {
+fn push_button_low_rx_reached<'a>(
+    modules: &mut HashMap<&'a str, Module<'a>>,
+    btn_pressed: usize,
+    modules_to_check: &mut HashMap<&'a str, usize>,
+) {
     let mut queue = VecDeque::from([Pulse {
         from: "button",
         to: "broadcaster",
         kind: PulseKind::Low,
     }]);
     while let Some(pulse) = queue.pop_front() {
-        println!("{pulse:?}");
-        if pulse.to == "rx" && pulse.kind == PulseKind::High {
-            return true;
-        }
-
         let Some(module) = modules.get_mut(pulse.to) else {
             continue;
         };
-
-        println!("{:?}", module.kind);
-        println!("---------------");
-        let mut kind_to_send = PulseKind::Low;
+        let mut pulse_kind_to_send = PulseKind::Low;
         match module.kind {
             Kind::Broadcaster => {}
             Kind::Debug => println!("received {pulse:?}"),
             Kind::FlipFlop(on) => {
                 if pulse.kind == PulseKind::Low {
                     if !on {
-                        kind_to_send = PulseKind::High;
+                        pulse_kind_to_send = PulseKind::High;
                     }
                     module.kind = Kind::FlipFlop(!on)
                 } else {
@@ -118,28 +116,50 @@ fn push_button_low_rx_reached<'a>(modules: &mut HashMap<&'a str, Module<'a>>) ->
             Kind::Conjunction(ref mut state) => {
                 state.insert(pulse.from, pulse.kind);
                 if state.iter().any(|(_, kind)| *kind == PulseKind::Low) {
-                    kind_to_send = PulseKind::High;
+                    pulse_kind_to_send = PulseKind::High;
+                }
+                if pulse.kind == PulseKind::High
+                    && modules_to_check.iter().any(|(name, _)| *name == pulse.from)
+                {
+                    modules_to_check.insert(pulse.from, btn_pressed);
                 }
             }
         };
         queue.extend(module.dst.iter().map(|to| Pulse {
-            kind: kind_to_send,
+            kind: pulse_kind_to_send,
             from: pulse.to,
             to,
         }));
     }
-    false
 }
-fn part2<'a>(mut modules: HashMap<&'a str, Module<'a>>) -> usize {
+fn part2<'a>(mut modules: HashMap<&'a str, Module<'a>>) -> Option<usize> {
     init_conjunctions(&mut modules);
-    (0..)
-        .take_while(|_| !push_button_low_rx_reached(&mut modules))
-        .count()
+    let mut cycle_detection_modules: HashMap<&str, usize> =
+        if let Kind::Conjunction(rx_src_modules) = &modules
+            .iter()
+            .find(|(_, module)| module.dst.iter().contains(&"rx"))
+            .unwrap()
+            .1
+            .kind
+        {
+            rx_src_modules.iter().map(|(name, _)| (*name, 0)).collect()
+        } else {
+            return None;
+        };
+    let mut btn_pressed = 0;
+    while cycle_detection_modules
+        .iter()
+        .any(|(_, btn_pressed)| btn_pressed == &0)
+    {
+        btn_pressed += 1;
+        push_button_low_rx_reached(&mut modules, btn_pressed, &mut cycle_detection_modules);
+    }
+    cycle_detection_modules.into_values().reduce(lcm)
 }
 fn main() {
     let input = read_to_string("inputs/day20-input1.txt").unwrap();
     let modules = parse(&input);
-    let answer = part2(modules);
+    let answer = part2(modules).unwrap();
     println!("answer is: {answer}");
 }
 #[cfg(test)]
@@ -152,13 +172,6 @@ broadcaster -> a, b, c
 %c -> inv
 &inv -> a
 "#;
-    const INPUT2: &str = r#"
-broadcaster -> a
-%a -> inv, con
-&inv -> b
-%b -> con
-&con -> output
-"#;
     #[test]
     fn parsing() {
         let modules = parse(INPUT.trim());
@@ -169,12 +182,5 @@ broadcaster -> a
                 dst: vec!["a", "b", "c"]
             }
         )
-    }
-    #[test]
-    fn part2_test() {
-        let parsed = parse(INPUT.trim());
-        assert_eq!(part2(parsed), 32000000);
-        let parsed = parse(INPUT2.trim());
-        assert_eq!(part2(parsed), 11687500);
     }
 }

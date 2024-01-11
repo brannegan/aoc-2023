@@ -82,15 +82,6 @@ fn construct_graph(map: &Map) -> Graph<(Tile, (usize, usize)), f32, Directed> {
         }
     });
     graph.retain_nodes(|g, ni| g[ni].0 != Tile::Forest);
-    graph.retain_edges(|g, ei| {
-        let (a_ni, b_ni) = g.edge_endpoints(ei).unwrap();
-        let ((a_tile, a), (b_tile, b)) = (g[a_ni], g[b_ni]);
-
-        a.0 > b.0 && (!matches!(b_tile, Tile::DSlope) && !matches!(a_tile, Tile::DSlope))
-            || a.0 < b.0 && (!matches!(b_tile, Tile::USlope) && !matches!(a_tile, Tile::USlope))
-            || a.1 > b.1 && (!matches!(b_tile, Tile::RSlope) && !matches!(a_tile, Tile::RSlope))
-            || a.1 < b.1 && (!matches!(b_tile, Tile::LSlope) && !matches!(a_tile, Tile::USlope))
-    });
     graph
 }
 
@@ -136,7 +127,7 @@ fn convert_to_dag(
     graph
 }
 
-fn part1(map: Map) -> usize {
+fn part2(map: Map) -> usize {
     let size = map.len();
     let graph = construct_graph(&map);
 
@@ -163,7 +154,7 @@ fn part1(map: Map) -> usize {
 fn main() {
     let input = read_to_string("inputs/day23-input1.txt").unwrap();
     let parsed = parse(&input);
-    let answer = part1(parsed);
+    let answer = part2(parsed);
     println!("answer is: {answer}");
 }
 
@@ -201,8 +192,8 @@ mod tests {
         assert_eq!(parsed[0][1], Tile::Path);
     }
     #[test]
-    fn part1_test() {
+    fn part2_test() {
         let parsed = parse(INPUT.trim());
-        assert_eq!(part1(parsed), 94);
+        assert_eq!(part2(parsed), 154);
     }
 }

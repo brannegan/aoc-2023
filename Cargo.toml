@@ -11,6 +11,7 @@ glam = "0.24.2"
 indextree = "4.6.0"
 indicatif = { version = "0.17.7", features = ["rayon"] }
 itertools = "0.12.0"
+nalgebra = { version = "0.32.3", features = ["convert-glam024"] }
 nom = "7.1.3"
 num = "0.4.1"
 petgraph = "0.6.4"

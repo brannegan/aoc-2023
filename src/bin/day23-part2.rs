@@ -3,7 +3,8 @@ use std::fs::read_to_string;
 
 use itertools::Itertools;
 use petgraph::matrix_graph::NodeIndex;
-use petgraph::{Directed, Graph};
+use petgraph::visit::EdgeRef;
+use petgraph::{Graph, Undirected};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tile {
@@ -54,34 +55,28 @@ fn _print_map(map: &Map) {
     }
 }
 
-fn construct_graph(map: &Map) -> Graph<(Tile, (usize, usize)), f32, Directed> {
-    let mut graph = Graph::new();
+fn construct_graph(map: &Map) -> Graph<(usize, usize), f32, Undirected> {
+    let mut graph = Graph::new_undirected();
     let w = map[0].len();
     let h = map.len();
     (0..h).cartesian_product(0..w).for_each(|(r, c)| {
-        graph.add_node((map[r][c], (r, c)));
+        graph.add_node((r, c));
     });
     (0..h).cartesian_product(0..w).for_each(|(r, c)| {
         if c + 1 < w && !matches!(map[r][c], Tile::Forest) && !matches!(map[r][c + 1], Tile::Forest)
         {
-            graph.add_edge(NodeIndex::new(r * w + c), NodeIndex::new(r * w + c + 1), 0.);
-            graph.add_edge(NodeIndex::new(r * w + c + 1), NodeIndex::new(r * w + c), 0.);
+            graph.add_edge(NodeIndex::new(r * w + c), NodeIndex::new(r * w + c + 1), 1.);
         }
         if r + 1 < h && !matches!(map[r][c], Tile::Forest) && !matches!(map[r + 1][c], Tile::Forest)
         {
             graph.add_edge(
                 NodeIndex::new(r * w + c),
                 NodeIndex::new((r + 1) * w + c),
-                0.,
-            );
-            graph.add_edge(
-                NodeIndex::new((r + 1) * w + c),
-                NodeIndex::new(r * w + c),
-                0.,
+                1.,
             );
         }
     });
-    graph.retain_nodes(|g, ni| g[ni].0 != Tile::Forest);
+    graph.retain_nodes(|g, ni| map[g[ni].0][g[ni].1] != Tile::Forest);
     graph
 }
 
@@ -92,63 +87,80 @@ fn parse(input: &str) -> Map {
         .collect()
 }
 
-fn path_to_exit(
-    g: &Graph<(Tile, (usize, usize)), f32>,
-    from: NodeIndex<u32>,
-    to: NodeIndex<u32>,
-) -> Vec<NodeIndex<u32>> {
-    petgraph::algo::astar(g, from, |node_i| node_i == to, |e| *e.weight(), |_| 0.)
-        .expect("reached exit point")
-        .1
-}
-fn find_node_with_simple_cycle(
-    g: &Graph<(Tile, (usize, usize)), f32>,
-    last: NodeIndex<u32>,
-) -> Option<NodeIndex<u32>> {
-    g.edge_indices().find_map(|ei| {
-        let (a, b) = g.edge_endpoints(ei).unwrap();
-        g.find_edge(b, a).map(|_| if last != a { a } else { b })
-    })
-}
-fn convert_to_dag(
-    mut graph: Graph<(Tile, (usize, usize)), f32>,
-    to: NodeIndex<u32>,
-) -> Graph<(Tile, (usize, usize)), f32> {
-    let mut prev_node = NodeIndex::new(0);
-    while let Some(from) = find_node_with_simple_cycle(&graph, prev_node) {
-        prev_node = from;
-        let path = path_to_exit(&graph, from, to);
-        for (a, b) in path.iter().tuple_windows() {
-            if let Some(edge_to_remove) = graph.find_edge(*b, *a) {
-                graph.remove_edge(edge_to_remove);
-            }
-        }
-    }
-    graph
-}
-
 fn part2(map: Map) -> usize {
     let size = map.len();
     let graph = construct_graph(&map);
 
-    let from = graph
+    let start = graph
         .node_indices()
-        .find(|ni| graph[*ni].1 == (0, 1))
+        .find(|ni| graph[*ni] == (0, 1))
         .expect("start");
-    let to = graph
+    let end = graph
         .node_indices()
-        .find(|ni| graph[*ni].1 == (size - 1, size - 2))
+        .find(|ni| graph[*ni] == (size - 1, size - 2))
         .expect("exit");
-    let mut dag = convert_to_dag(graph, to);
-    dag.edge_weights_mut().for_each(|w| *w = -1.);
-    let paths = petgraph::algo::bellman_ford(&dag, from).expect("no negative cycles");
-    let max_weight = paths
-        .distances
+    let mut crossroads: Vec<_> = graph
+        .node_indices()
+        .filter(|a| graph.neighbors(*a).count() > 2)
+        .collect();
+    crossroads.push(start);
+    crossroads.push(end);
+    let mut graph_of_crossroads = Graph::new_undirected();
+    for cr in &crossroads {
+        graph_of_crossroads.add_node(graph[*cr]);
+    }
+    crossroads
         .iter()
-        .min_by(|a, b| a.total_cmp(b))
-        .unwrap()
-        .abs();
-    max_weight.abs() as usize
+        .combinations(2)
+        .map(|comb| {
+            let (cost, _) = petgraph::algo::astar(
+                &graph,
+                *comb[0],
+                |ni| ni == *comb[1],
+                |e| {
+                    let source = e.source();
+                    if crossroads.contains(&source) && source != *comb[0] && source != *comb[1] {
+                        // penalize if we walk through another crossroad
+                        1000
+                    } else {
+                        1
+                    }
+                },
+                |_| 0,
+            )
+            .unwrap();
+            (cost, comb)
+        })
+        .filter(|(cost, _)| cost < &1000) //filter penalized
+        .for_each(|(cost, comb)| {
+            let a = graph_of_crossroads
+                .node_indices()
+                .find(|ni| graph_of_crossroads[*ni] == graph[*comb[0]])
+                .unwrap();
+            let b = graph_of_crossroads
+                .node_indices()
+                .find(|ni| graph_of_crossroads[*ni] == graph[*comb[1]])
+                .unwrap();
+            graph_of_crossroads.add_edge(a, b, cost);
+        });
+
+    let start = graph_of_crossroads
+        .node_indices()
+        .find(|ni| graph_of_crossroads[*ni] == (0, 1))
+        .expect("start");
+    let end = graph_of_crossroads
+        .node_indices()
+        .find(|ni| graph_of_crossroads[*ni] == (size - 1, size - 2))
+        .expect("start");
+    petgraph::algo::all_simple_paths(&graph_of_crossroads, start, end, 1, None)
+        .map(|path: Vec<_>| {
+            path.iter()
+                .tuple_windows()
+                .map(|(a, b)| graph_of_crossroads[graph_of_crossroads.find_edge(*a, *b).unwrap()])
+                .sum::<usize>()
+        })
+        .max()
+        .expect("maximum weighted path")
 }
 
 fn main() {

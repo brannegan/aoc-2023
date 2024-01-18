@@ -80,16 +80,22 @@ fn part2(hails: &[Hail]) -> i64 {
             res.view((3, 0), (3, 1)).into_iter().copied(),
         )),
     };
-    let tx = ((hails[0].pos.x - rock.pos.x) / (rock.vel.x - hails[0].vel.x)).round();
-    let ty = ((hails[0].pos.y - rock.pos.y) / (rock.vel.y - hails[0].vel.y)).round();
-    let tz = ((hails[0].pos.z - rock.pos.z) / (rock.vel.z - hails[0].vel.z)).round();
+    let hail = hails
+        .iter()
+        .find(|hail| {
+            hail.vel.x != rock.vel.y && hail.vel.y != rock.vel.y && hail.vel.z != rock.vel.z
+        })
+        .expect("hail.vel.x|y|z != rock.vel.x|y|z");
+    let tx = ((hail.pos.x - rock.pos.x) / (rock.vel.x - hail.vel.x)).round();
+    let ty = ((hail.pos.y - rock.pos.y) / (rock.vel.y - hail.vel.y)).round();
+    let tz = ((hail.pos.z - rock.pos.z) / (rock.vel.z - hail.vel.z)).round();
     assert_eq!(tx, ty);
     assert_eq!(tx, tz);
     // fix floating point error by recalculating rock position as i64vec3
-    let rock_pos = hails[0].pos.as_i64vec3() + tx as i64 * (hails[0].vel - rock.vel).as_i64vec3();
+    let rock_pos = hail.pos.as_i64vec3() + tx as i64 * (hail.vel - rock.vel).as_i64vec3();
     assert_eq!(
         rock_pos + tx as i64 * rock.vel.as_i64vec3(),
-        hails[0].pos.as_i64vec3() + tx as i64 * hails[0].vel.as_i64vec3()
+        hail.pos.as_i64vec3() + tx as i64 * hail.vel.as_i64vec3()
     );
     rock_pos.x + rock_pos.y + rock_pos.z
 }
